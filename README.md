@@ -33,7 +33,7 @@ Add the `<plugin>` tag inside your `<sensor>` element.
 
 **Example (URDF/Xacro):**
 ```xml
-<gazebo reference="base_scan">
+<gazebo reference="lidar_link">
   <sensor name="mid360" type="gpu_lidar">
     <topic>points</topic> <!-- Gazebo internal topic -->
     <update_rate>10</update_rate>
@@ -65,7 +65,7 @@ Add the `<plugin>` tag inside your `<sensor>` element.
       <ros_topic>livox/lidar</ros_topic>
       
       <!-- Frame ID for the ROS header -->
-      <frame_id>base_scan</frame_id>
+      <frame_id>lidar_link</frame_id>
     </plugin>
   </sensor>
 </gazebo>
