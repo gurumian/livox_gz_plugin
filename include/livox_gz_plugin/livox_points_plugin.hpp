@@ -8,6 +8,9 @@
 #include <rclcpp/rclcpp.hpp>
 #include <livox_ros_driver2/msg/custom_msg.hpp>
 
+#include <mutex>
+#include <queue>
+
 namespace livox_gz_plugin
 {
 class LivoxPointsPlugin : public gz::sim::System,
@@ -28,10 +31,14 @@ public:
 
 private:
   void OnScan(const gz::msgs::PointCloudPacked &_msg);
+  void DrainAndPublish();
 
   gz::transport::Node gz_node_;
   std::shared_ptr<rclcpp::Node> ros_node_;
   rclcpp::Publisher<livox_ros_driver2::msg::CustomMsg>::SharedPtr custom_pub_;
+  rclcpp::TimerBase::SharedPtr publish_timer_;
+  std::queue<livox_ros_driver2::msg::CustomMsg> msg_queue_;
+  std::mutex queue_mutex_;
   std::string scan_topic_;
   std::string ros_topic_;
   std::string frame_id_;

@@ -6,6 +6,9 @@
 #include <gz/sim/components/Sensor.hh>
 #include <gz/sim/Util.hh>
 
+#include <chrono>
+#include <functional>
+
 namespace livox_gz_plugin
 {
 
@@ -50,6 +53,12 @@ void LivoxPointsPlugin::Configure(const gz::sim::Entity &_entity,
   // Create Publisher
   custom_pub_ = ros_node_->create_publisher<livox_ros_driver2::msg::CustomMsg>(ros_topic_, 10);
 
+  // Timer to drain queue and publish on the ROS executor thread (avoids "rmw handle is invalid"
+  // when OnScan is invoked from gz::transport thread).
+  publish_timer_ = ros_node_->create_wall_timer(
+      std::chrono::milliseconds(10),
+      std::bind(&LivoxPointsPlugin::DrainAndPublish, this));
+
   // Subscribe to Gazebo Topic
   if (!scan_topic_.empty())
   {
@@ -63,7 +72,10 @@ void LivoxPointsPlugin::Configure(const gz::sim::Entity &_entity,
 void LivoxPointsPlugin::PostUpdate(const gz::sim::UpdateInfo &_info,
                                    const gz::sim::EntityComponentManager &_ecm)
 {
-    // No-op. Data comes via callback.
+  // Run ROS executor so timer (DrainAndPublish) runs on this thread; publish() must
+  // not be called from gz::transport's OnScan thread.
+  if (ros_node_)
+    rclcpp::spin_some(ros_node_);
 }
 
 void LivoxPointsPlugin::OnScan(const gz::msgs::PointCloudPacked &_msg)
@@ -144,7 +156,31 @@ void LivoxPointsPlugin::OnScan(const gz::msgs::PointCloudPacked &_msg)
     custom_msg.points.push_back(pt);
   }
 
-  custom_pub_->publish(custom_msg);
+  // Enqueue; actual publish happens in DrainAndPublish() on the ROS executor thread.
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    // Keep only latest to avoid latency buildup
+    if (msg_queue_.size() >= 1u)
+      msg_queue_.pop();
+    msg_queue_.push(std::move(custom_msg));
+  }
+}
+
+void LivoxPointsPlugin::DrainAndPublish()
+{
+  livox_ros_driver2::msg::CustomMsg msg;
+  bool have_msg = false;
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (!msg_queue_.empty())
+    {
+      msg = std::move(msg_queue_.front());
+      msg_queue_.pop();
+      have_msg = true;
+    }
+  }
+  if (have_msg && custom_pub_)
+    custom_pub_->publish(std::move(msg));
 }
 
 }  // namespace livox_gz_plugin
